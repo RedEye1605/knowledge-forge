@@ -2,7 +2,12 @@
 name = "knowledge-forge"
 version = "0.2.0"
 description = "Personal knowledge retention engine with spaced repetition"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
+authors = [
+    { name = "Rhendy Japelhendal Saragih Sumbayak", email = "rhendygio19@gmail.com" }
+]
 dependencies = ["click>=8.0", "rich>=13.0"]
 
 [project.optional-dependencies]
