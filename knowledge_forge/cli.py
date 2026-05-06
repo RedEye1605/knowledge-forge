@@ -143,8 +143,12 @@ def add_paper_cmd(url: str):
 
 
 @main.command("import")
-@click.option("--source", required=True, type=click.Choice(["obsidian", "file", "papers"]),
-              help="Import source type")
+@click.option(
+    "--source",
+    required=True,
+    type=click.Choice(["obsidian", "file", "papers"]),
+    help="Import source type",
+)
 @click.option("--path", "-p", required=True, help="Path to directory or file")
 def import_cmd(source: str, path: str):
     """Batch import from various sources."""
@@ -234,7 +238,9 @@ def due_cmd(limit: int):
     _out(f"[bold yellow]📋 {len(items)} items due for review[/bold yellow]")
     for i, item in enumerate(items, 1):
         _out(f"  {i}. [cyan]{item['id'][:8]}[/cyan] {item['title'][:50]} ({item['type']})")
-    _out("\n[dim]Review with: knowledge-forge rate ITEM_ID --difficulty easy|medium|hard[/dim]")
+    _out(
+        "\n[dim]Review with: knowledge-forge rate ITEM_ID --difficulty easy|medium|hard[/dim]"
+    )
     conn.close()
 
 
@@ -277,7 +283,9 @@ def review_cmd(limit: int):
         table.add_row(str(i), item["id"][:8], item["title"][:50], item["type"], str(due))
 
     _out(table)
-    _out("\n[dim]Review with: knowledge-forge rate ITEM_ID --difficulty easy|medium|hard[/dim]")
+    _out(
+        "\n[dim]Review with: knowledge-forge rate ITEM_ID --difficulty easy|medium|hard[/dim]"
+    )
     conn.close()
 
 
@@ -301,13 +309,25 @@ def rate_cmd(item_id: str, difficulty: str):
 
     latest = get_latest_review(conn, item_id)
     result = process_review(item_id, difficulty, latest)
-    add_review(conn, item_id=item_id, difficulty=difficulty,
-               next_review=result["next_review"], interval_days=result["interval_days"],
-               ease_factor=result["ease_factor"], repetitions=result["repetitions"])
+    add_review(
+        conn,
+        item_id=item_id,
+        difficulty=difficulty,
+        next_review=result["next_review"],
+        interval_days=result["interval_days"],
+        ease_factor=result["ease_factor"],
+        repetitions=result["repetitions"],
+    )
 
     if _json_output:
-        _json_out({"item_id": item_id, "difficulty": difficulty, "next_review": result["next_review"],
-                   "interval_days": result["interval_days"]})
+        _json_out(
+            {
+                "item_id": item_id,
+                "difficulty": difficulty,
+                "next_review": result["next_review"],
+                "interval_days": result["interval_days"],
+            }
+        )
     else:
         diff_color = {"easy": "green", "medium": "yellow", "hard": "red"}[difficulty]
         _out(f"[{diff_color}]● {difficulty.upper()}[/{diff_color}] [cyan]{item['title']}[/cyan]")
@@ -451,8 +471,10 @@ def relate_cmd(source_id: str, target_id: str, relation_type: str):
     if _json_output:
         _json_out({"source": source_id, "target": target_id, "type": relation_type})
     else:
-        _out(f"[green]✓[/green] Linked [cyan]{src['title']}[/cyan] "
-             f"→[{relation_type}]→ [cyan]{tgt['title']}[/cyan]")
+        _out(
+            f"[green]✓[/green] Linked [cyan]{src['title']}[/cyan] "
+            f"→[{relation_type}]→ [cyan]{tgt['title']}[/cyan]",
+        )
     conn.close()
 
 

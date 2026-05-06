@@ -38,7 +38,8 @@ def init_db(conn: sqlite3.Connection | None = None) -> sqlite3.Connection:
             CREATE TABLE IF NOT EXISTS items (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
-                type TEXT NOT NULL CHECK(type IN ('paper','concept','technique','note','lecture')),
+                type TEXT NOT NULL CHECK(type IN ('paper','concept','technique','note','lecture'))
+                ,
                 content TEXT DEFAULT '',
                 source_url TEXT DEFAULT '',
                 tags TEXT DEFAULT '[]',
@@ -62,7 +63,7 @@ def init_db(conn: sqlite3.Connection | None = None) -> sqlite3.Connection:
                 source_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
                 target_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
                 relation_type TEXT NOT NULL DEFAULT 'related'
-                    CHECK(relation_type IN ('related','prerequisite','builds_on','contrasts'))
+                CHECK(relation_type IN ('related','prerequisite','builds_on','contrasts'))
             );
 
             CREATE INDEX IF NOT EXISTS idx_reviews_item_id ON reviews(item_id);
@@ -135,6 +136,7 @@ def add_item(
     tags_json = json.dumps(tags or [])
     conn.execute(
         "INSERT INTO items (id, title, type, content, source_url, tags, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (item_id, title, type, content, source_url, tags_json, now, now),
     )
@@ -215,7 +217,8 @@ def add_review(
     now = _now()
     conn.execute(
         "INSERT INTO reviews (id, item_id, reviewed_at, difficulty, next_review, "
-        "interval_days, ease_factor, repetitions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "interval_days, ease_factor, repetitions) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (review_id, item_id, now, difficulty, next_review, interval_days, ease_factor, repetitions),
     )
     conn.commit()
@@ -274,7 +277,8 @@ def add_relation(
 ) -> dict[str, Any]:
     rel_id = str(uuid.uuid4())
     conn.execute(
-        "INSERT INTO relations (id, source_id, target_id, relation_type) VALUES (?, ?, ?, ?)",
+        "INSERT INTO relations (id, source_id, target_id, relation_type) "
+        "VALUES (?, ?, ?, ?)",
         (rel_id, source_id, target_id, relation_type),
     )
     conn.commit()
@@ -297,7 +301,10 @@ def get_relations(
         "WHERE r.target_id = ?",
         (item_id,),
     ).fetchall()
-    return {"outgoing": [_row_to_dict(r) for r in rows], "incoming": [_row_to_dict(r) for r in back_rows]}
+    return {
+        "outgoing": [_row_to_dict(r) for r in rows],
+        "incoming": [_row_to_dict(r) for r in back_rows],
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -37,8 +37,16 @@ def import_arxiv(url_or_id: str) -> dict[str, Any]:
     title_el = entry.find("atom:title", ARXIV_NS)
     summary_el = entry.find("atom:summary", ARXIV_NS)
 
-    title = (title_el.text or "").strip().replace("\n", " ") if title_el is not None else arxiv_id
-    abstract = (summary_el.text or "").strip().replace("\n", " ") if summary_el is not None else ""
+    title = (
+        (title_el.text or "").strip().replace("\n", " ")
+        if title_el is not None
+        else arxiv_id
+    )
+    abstract = (
+        (summary_el.text or "").strip().replace("\n", " ")
+        if summary_el is not None
+        else ""
+    )
 
     authors = [
         (a.find("atom:name", ARXIV_NS).text or "").strip()

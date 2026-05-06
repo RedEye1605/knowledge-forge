@@ -6,7 +6,9 @@ import sqlite3
 from typing import Any
 
 
-def search(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[dict[str, Any]]:
+def search(
+    conn: sqlite3.Connection, query: str, limit: int = 20
+) -> list[dict[str, Any]]:
     """Full-text search across items using FTS5.
 
     Returns ranked results with snippet highlighting.
@@ -36,7 +38,9 @@ def search(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[dict[s
     return [_row_to_dict(r) for r in rows]
 
 
-def search_by_tag(conn: sqlite3.Connection, tag: str, limit: int = 20) -> list[dict[str, Any]]:
+def search_by_tag(
+    conn: sqlite3.Connection, tag: str, limit: int = 20
+) -> list[dict[str, Any]]:
     """Filter items by tag."""
     rows = conn.execute(
         "SELECT * FROM items WHERE tags LIKE ? ORDER BY updated_at DESC LIMIT ?",
@@ -45,7 +49,9 @@ def search_by_tag(conn: sqlite3.Connection, tag: str, limit: int = 20) -> list[d
     return [_row_to_dict(r) for r in rows]
 
 
-def search_by_type(conn: sqlite3.Connection, item_type: str, limit: int = 20) -> list[dict[str, Any]]:
+def search_by_type(
+    conn: sqlite3.Connection, item_type: str, limit: int = 20
+) -> list[dict[str, Any]]:
     """Filter items by type."""
     rows = conn.execute(
         "SELECT * FROM items WHERE type = ? ORDER BY updated_at DESC LIMIT ?",
