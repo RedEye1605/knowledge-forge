@@ -13,10 +13,19 @@ DB_PATH = Path.home() / ".openclaw" / "knowledgeforge.db"
 
 
 def _now() -> str:
+    """Return current UTC time as ISO 8601 string."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
+    """Create and return a SQLite connection with optimal settings.
+    
+    Args:
+        db_path: Path to database file. If None, uses default DB_PATH.
+        
+    Returns:
+        SQLite connection with row_factory and WAL mode enabled.
+    """
     path = Path(db_path) if db_path else DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
@@ -131,12 +140,25 @@ def add_item(
     tags: list[str] | None = None,
     item_id: str | None = None,
 ) -> dict[str, Any]:
+    """Add a new knowledge item to the database.
+    
+    Args:
+        conn: SQLite connection.
+        title: Item title.
+        type: Item type (paper, concept, technique, note, lecture).
+        content: Item content/body.
+        source_url: Optional URL source.
+        tags: List of tags.
+        item_id: Optional custom ID (UUID generated if not provided).
+        
+    Returns:
+        Created item as dictionary.
+    """
     now = _now()
     item_id = item_id or str(uuid.uuid4())
     tags_json = json.dumps(tags or [])
     conn.execute(
         "INSERT INTO items (id, title, type, content, source_url, tags, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (item_id, title, type, content, source_url, tags_json, now, now),
     )
@@ -145,6 +167,15 @@ def add_item(
 
 
 def get_item(conn: sqlite3.Connection, item_id: str) -> dict[str, Any] | None:
+    """Retrieve an item by ID.
+    
+    Args:
+        conn: SQLite connection.
+        item_id: Item UUID.
+        
+    Returns:
+        Item dictionary or None if not found.
+    """
     row = conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
     if row is None:
         return None
@@ -156,6 +187,16 @@ def update_item(
     item_id: str,
     **fields: Any,
 ) -> dict[str, Any] | None:
+    """Update an item's fields.
+    
+    Args:
+        conn: SQLite connection.
+        item_id: Item UUID.
+        **fields: Fields to update (title, type, content, source_url, tags).
+        
+    Returns:
+        Updated item dictionary or None.
+    """
     allowed = {"title", "type", "content", "source_url", "tags"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
@@ -171,6 +212,15 @@ def update_item(
 
 
 def delete_item(conn: sqlite3.Connection, item_id: str) -> bool:
+    """Delete an item and its related reviews/relations.
+    
+    Args:
+        conn: SQLite connection.
+        item_id: Item UUID.
+        
+    Returns:
+        True if deleted, False if not found.
+    """
     cursor = conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
     conn.commit()
     return cursor.rowcount > 0
@@ -183,6 +233,18 @@ def list_items(
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
+    """List items with optional filtering.
+    
+    Args:
+        conn: SQLite connection.
+        type: Filter by item type.
+        tag: Filter by tag.
+        limit: Maximum results.
+        offset: Pagination offset.
+        
+    Returns:
+        List of item dictionaries.
+    """
     query = "SELECT * FROM items"
     conditions: list[str] = []
     params: list[Any] = []
@@ -213,6 +275,20 @@ def add_review(
     ease_factor: float,
     repetitions: int,
 ) -> dict[str, Any]:
+    """Add a spaced repetition review record.
+    
+    Args:
+        conn: SQLite connection.
+        item_id: Item UUID.
+        difficulty: Rating (easy, medium, hard).
+        next_review: ISO timestamp for next review.
+        interval_days: Current SM-2 interval.
+        ease_factor: SM-2 ease factor.
+        repetitions: Number of successful reviews.
+        
+    Returns:
+        Created review dictionary.
+    """
     review_id = str(uuid.uuid4())
     now = _now()
     conn.execute(
@@ -227,6 +303,15 @@ def add_review(
 
 
 def get_latest_review(conn: sqlite3.Connection, item_id: str) -> dict[str, Any] | None:
+    """Get most recent review for an item.
+    
+    Args:
+        conn: SQLite connection.
+        item_id: Item UUID.
+        
+    Returns:
+        Review dictionary or None.
+    """
     row = conn.execute(
         "SELECT * FROM reviews WHERE item_id = ? ORDER BY reviewed_at DESC LIMIT 1",
         (item_id,),
@@ -258,6 +343,16 @@ def get_due_items(conn: sqlite3.Connection, limit: int = 20) -> list[dict[str, A
 def get_review_history(
     conn: sqlite3.Connection, item_id: str, limit: int = 20
 ) -> list[dict[str, Any]]:
+    """Get review history for an item.
+    
+    Args:
+        conn: SQLite connection.
+        item_id: Item UUID.
+        limit: Maximum results.
+        
+    Returns:
+        List of review dictionaries (newest first).
+    """
     rows = conn.execute(
         "SELECT * FROM reviews WHERE item_id = ? ORDER BY reviewed_at DESC LIMIT ?",
         (item_id, limit),
@@ -275,6 +370,17 @@ def add_relation(
     target_id: str,
     relation_type: str = "related",
 ) -> dict[str, Any]:
+    """Add a relation between two items.
+    
+    Args:
+        conn: SQLite connection.
+        source_id: Source item UUID.
+        target_id: Target item UUID.
+        relation_type: Relation type (related, prerequisite, builds_on, contrasts).
+        
+    Returns:
+        Created relation dictionary.
+    """
     rel_id = str(uuid.uuid4())
     conn.execute(
         "INSERT INTO relations (id, source_id, target_id, relation_type) "
@@ -289,6 +395,15 @@ def add_relation(
 def get_relations(
     conn: sqlite3.Connection, item_id: str
 ) -> list[dict[str, Any]]:
+    """Get all relations for an item (incoming and outgoing).
+    
+    Args:
+        conn: SQLite connection.
+        item_id: Item UUID.
+        
+    Returns:
+        Dict with 'outgoing' and 'incoming' lists of relations.
+    """
     rows = conn.execute(
         "SELECT r.*, i.title AS target_title FROM relations r "
         "JOIN items i ON r.target_id = i.id "
@@ -312,6 +427,14 @@ def get_relations(
 # ---------------------------------------------------------------------------
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    """Convert SQLite Row to dict with JSON tags deserialized.
+    
+    Args:
+        row: SQLite Row object.
+        
+    Returns:
+        Dictionary with tags parsed from JSON if present.
+    """
     d = dict(row)
     if "tags" in d and isinstance(d["tags"], str):
         try:
