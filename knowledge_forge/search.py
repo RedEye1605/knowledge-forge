@@ -1,4 +1,13 @@
-"""Full-text search using SQLite FTS5 for Knowledge Forge."""
+"""Full-text search using SQLite FTS5 for Knowledge Forge.
+
+This module provides search functionality across knowledge items using:
+- FTS5 full-text search with ranked results
+- Tag-based filtering
+- Type-based filtering
+- Fallback LIKE search when FTS5 is unavailable
+
+All search functions return a list of item dictionaries matching the query.
+"""
 
 from __future__ import annotations
 
