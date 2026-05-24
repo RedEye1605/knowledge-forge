@@ -17,9 +17,25 @@ def sm2(
     ease_factor: float = DEFAULT_EASE_FACTOR,
     repetitions: int = 0,
 ) -> dict[str, float | int]:
-    """Run one SM-2 step and return new scheduling parameters.
+    """Run one SM-2 spaced repetition algorithm step.
 
-    Returns dict with: interval_days, ease_factor, repetitions
+    Implements the SuperMemo-2 algorithm to compute the next review interval
+    and update the ease factor based on the user's difficulty rating.
+
+    Args:
+        difficulty: User's difficulty rating ('easy', 'medium', or 'hard').
+        current_interval: Current interval in days before this review.
+        ease_factor: Current ease factor (higher = longer intervals).
+        repetitions: Number of successful reviews before this one.
+
+    Returns:
+        Dictionary containing:
+            - interval_days: Next interval in days.
+            - ease_factor: Updated ease factor.
+            - repetitions: Updated repetition count.
+
+    Raises:
+        ValueError: If difficulty is not 'easy', 'medium', or 'hard'.
     """
     if difficulty == "easy":
         ease_factor = ease_factor + 0.15
@@ -51,7 +67,14 @@ def sm2(
 
 
 def compute_next_review(interval_days: float) -> str:
-    """Compute the next review datetime as ISO-8601 string."""
+    """Compute the next review datetime based on interval.
+
+    Args:
+        interval_days: Number of days until next review.
+
+    Returns:
+        ISO-8601 formatted timestamp string in UTC timezone.
+    """
     next_dt = datetime.now(timezone.utc) + timedelta(days=interval_days)
     return next_dt.isoformat()
 
@@ -61,7 +84,22 @@ def process_review(
     difficulty: str,
     latest_review: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Process a review for an item. Returns parameters for new review record."""
+    """Process a review and compute scheduling parameters for the next review.
+
+    Orchestrates the SM-2 algorithm by extracting current state from the
+    latest review (if any) and computing new scheduling parameters.
+
+    Args:
+        item_id: The unique identifier of the item being reviewed.
+        difficulty: User's difficulty rating ('easy', 'medium', or 'hard').
+        latest_review: The most recent review record, if this item has been
+            reviewed before. If None, uses default first-review values.
+
+    Returns:
+        Dictionary containing all parameters needed to create a new review
+        record: interval_days, ease_factor, repetitions, next_review,
+        item_id, and difficulty.
+    """
     if latest_review is None:
         current_interval = DEFAULT_INTERVAL
         ease_factor = DEFAULT_EASE_FACTOR
