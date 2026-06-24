@@ -135,10 +135,6 @@ def _parse_markdown(path: Path) -> dict[str, Any] | None:
                     )
                 else:
                     tags.append(tag_val.strip("\"'"))
-            elif line.startswith("- ") and any(
-                line.startswith(f"- {p}") for p in []  # Check if in tags block
-            ):
-                pass  # Handled by tags: block above
 
     # Extract H1 title
     h1_match = re.match(r"^#\s+(.+)$", content, re.MULTILINE)
