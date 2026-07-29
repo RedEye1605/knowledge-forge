@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 from typing import Any
 
 import click
@@ -52,7 +54,8 @@ def _json_out(data):
 
 
 def _conn():
-    return get_connection()
+    override = os.environ.get("KNOWLEDGE_FORGE_DB")
+    return get_connection(Path(override) if override else None)
 
 
 def _resolve_item(conn, item_id: str):
@@ -546,6 +549,124 @@ def delete_cmd(item_id: str):
     else:
         _out(f"[red]✗[/red] Failed to delete: {item_id}")
     conn.close()
+
+
+@main.group("promote")
+def promote_group():
+    """Queue, approve, and publish durable topic notes."""
+
+
+@promote_group.command("queue")
+@click.option("--title", required=True)
+@click.option("--type", "topic_type", required=True)
+@click.option("--description", required=True)
+@click.option("--source-kind", required=True)
+@click.option("--source-id", required=True)
+@click.option("--source-path", type=click.Path(path_type=Path))
+@click.option("--related-note", multiple=True)
+@click.option("--correlation-id", default="")
+@click.option("--topics-dir", type=click.Path(path_type=Path), hidden=True)
+def promote_queue_cmd(title, topic_type, description, source_kind, source_id,
+                      source_path, related_note, correlation_id, topics_dir):
+    """Queue a pending topic-note candidate without writing the vault."""
+    from . import promotion
+    conn = _conn()
+    init_db(conn)
+    candidate = promotion.queue_candidate(
+        conn, title=title, topic_type=topic_type, description=description,
+        source_kind=source_kind, source_id=source_id, source_path=source_path,
+        related_notes=list(related_note), correlation_id=correlation_id,
+        topics_dir=topics_dir or promotion.TOPICS_DIR,
+    )
+    conn.close()
+    if not _json_out(candidate):
+        _out(f"[green]Queued[/green] {candidate['id']} — {candidate['title']}")
+
+
+@promote_group.command("list")
+@click.option("--status", type=click.Choice(["pending", "approved", "rejected", "promoted", "conflict"]))
+@click.option("--limit", default=50, type=click.IntRange(1, 500))
+def promote_list_cmd(status, limit):
+    """List promotion candidates."""
+    from .db import list_promotion_candidates
+    conn = _conn()
+    init_db(conn)
+    candidates = list_promotion_candidates(conn, status=status, limit=limit)
+    conn.close()
+    if not _json_out(candidates):
+        for candidate in candidates:
+            _out(f"{candidate['id'][:12]}  {candidate['status']:9}  {candidate['title']}")
+
+
+@promote_group.command("show")
+@click.argument("candidate_id")
+def promote_show_cmd(candidate_id):
+    """Show one promotion candidate."""
+    from .db import get_promotion_candidate
+    conn = _conn()
+    init_db(conn)
+    candidate = get_promotion_candidate(conn, candidate_id)
+    conn.close()
+    if candidate is None:
+        raise click.ClickException("Candidate not found")
+    if not _json_out(candidate):
+        _out(json.dumps(candidate, indent=2, default=str))
+
+
+@promote_group.command("approve")
+@click.argument("candidate_id")
+def promote_approve_cmd(candidate_id):
+    """Approve a pending candidate without writing it."""
+    from .promotion import approve
+    conn = _conn()
+    init_db(conn)
+    try:
+        candidate = approve(conn, candidate_id)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    finally:
+        conn.close()
+    if not _json_out(candidate):
+        _out(f"[green]Approved[/green] {candidate_id}")
+
+
+@promote_group.command("reject")
+@click.argument("candidate_id")
+def promote_reject_cmd(candidate_id):
+    """Reject and retain a pending candidate."""
+    from .promotion import reject
+    conn = _conn()
+    init_db(conn)
+    try:
+        candidate = reject(conn, candidate_id)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    finally:
+        conn.close()
+    if not _json_out(candidate):
+        _out(f"[yellow]Rejected[/yellow] {candidate_id}")
+
+
+@promote_group.command("apply")
+@click.argument("candidate_id")
+@click.option("--topics-dir", type=click.Path(path_type=Path), hidden=True)
+def promote_apply_cmd(candidate_id, topics_dir):
+    """Atomically apply an approved candidate or quarantine a conflict."""
+    from . import promotion
+    conn = _conn()
+    init_db(conn)
+    try:
+        candidate = promotion.apply(
+            conn, candidate_id, topics_dir=topics_dir or promotion.TOPICS_DIR
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    finally:
+        conn.close()
+    if candidate["status"] == "conflict":
+        raise click.ClickException("Promotion conflict quarantined; target was not changed")
+    if not _json_out(candidate):
+        _out(f"[green]Promoted[/green] {candidate['target_path']}")
 
 
 def _print_item(item: dict[str, Any]):

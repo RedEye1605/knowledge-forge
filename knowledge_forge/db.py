@@ -28,8 +28,9 @@ def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
     """
     path = Path(db_path) if db_path else DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(str(path), timeout=5.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
@@ -80,6 +81,38 @@ def init_db(conn: sqlite3.Connection | None = None) -> sqlite3.Connection:
             CREATE INDEX IF NOT EXISTS idx_items_type ON items(type);
             CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_id);
             CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_id);
+
+            CREATE TABLE IF NOT EXISTS promotion_candidates (
+                id TEXT PRIMARY KEY,
+                topic_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                topic_type TEXT NOT NULL,
+                target_path TEXT NOT NULL,
+                proposed_content TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                expected_target_hash TEXT,
+                source_kind TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                source_path TEXT DEFAULT '',
+                source_hash TEXT NOT NULL,
+                correlation_id TEXT DEFAULT '',
+                provenance TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN ('pending','approved','rejected','promoted','conflict')),
+                approved_at TEXT,
+                promoted_at TEXT,
+                observed_target_hash TEXT,
+                conflict_reason TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(source_kind, source_id, source_hash, topic_id),
+                UNIQUE(target_path, content_hash)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_promotion_candidates_status
+                ON promotion_candidates(status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_promotion_candidates_topic
+                ON promotion_candidates(topic_id, created_at);
             """
         )
 
@@ -125,6 +158,113 @@ def init_db(conn: sqlite3.Connection | None = None) -> sqlite3.Connection:
     finally:
         if close:
             conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Promotion queue
+# ---------------------------------------------------------------------------
+
+PROMOTION_STATUSES = {"pending", "approved", "rejected", "promoted", "conflict"}
+
+
+def _promotion_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    result = dict(row)
+    try:
+        result["provenance"] = json.loads(result.get("provenance") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        result["provenance"] = {}
+    return result
+
+
+def add_promotion_candidate(conn: sqlite3.Connection, **candidate: Any) -> dict[str, Any]:
+    """Insert an idempotent pending promotion candidate."""
+    now = _now()
+    conn.execute(
+        """
+        INSERT INTO promotion_candidates (
+            id, topic_id, title, topic_type, target_path, proposed_content,
+            content_hash, expected_target_hash, source_kind, source_id,
+            source_path, source_hash, correlation_id, provenance,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO NOTHING
+        """,
+        (
+            candidate["id"], candidate["topic_id"], candidate["title"],
+            candidate["topic_type"], candidate["target_path"],
+            candidate["proposed_content"], candidate["content_hash"],
+            candidate.get("expected_target_hash"), candidate["source_kind"],
+            candidate["source_id"], candidate.get("source_path", ""),
+            candidate["source_hash"], candidate.get("correlation_id", ""),
+            json.dumps(candidate.get("provenance") or {}, sort_keys=True), now, now,
+        ),
+    )
+    conn.commit()
+    result = get_promotion_candidate(conn, candidate["id"])
+    if result is None:
+        raise RuntimeError("promotion candidate insert failed")
+    return result
+
+
+def get_promotion_candidate(conn: sqlite3.Connection, candidate_id: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT * FROM promotion_candidates WHERE id = ?", (candidate_id,)
+    ).fetchone()
+    return _promotion_row(row)
+
+
+def list_promotion_candidates(
+    conn: sqlite3.Connection, status: str | None = None, limit: int = 50
+) -> list[dict[str, Any]]:
+    if status is not None and status not in PROMOTION_STATUSES:
+        raise ValueError(f"Invalid promotion status: {status}")
+    if status is None:
+        rows = conn.execute(
+            "SELECT * FROM promotion_candidates ORDER BY created_at, id LIMIT ?", (limit,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM promotion_candidates WHERE status = ? "
+            "ORDER BY created_at, id LIMIT ?",
+            (status, limit),
+        ).fetchall()
+    return [_promotion_row(row) for row in rows]
+
+
+def transition_promotion_candidate(
+    conn: sqlite3.Connection,
+    candidate_id: str,
+    *,
+    expected_status: str,
+    new_status: str,
+    observed_target_hash: str | None = None,
+    conflict_reason: str = "",
+) -> dict[str, Any] | None:
+    """Atomically advance one promotion candidate from an expected state."""
+    if expected_status not in PROMOTION_STATUSES or new_status not in PROMOTION_STATUSES:
+        raise ValueError("Invalid promotion status transition")
+    now = _now()
+    approved_at = now if new_status == "approved" else None
+    promoted_at = now if new_status == "promoted" else None
+    cursor = conn.execute(
+        """
+        UPDATE promotion_candidates
+        SET status = ?, approved_at = COALESCE(?, approved_at),
+            promoted_at = COALESCE(?, promoted_at), observed_target_hash = ?,
+            conflict_reason = ?, updated_at = ?
+        WHERE id = ? AND status = ?
+        """,
+        (
+            new_status, approved_at, promoted_at, observed_target_hash,
+            conflict_reason, now, candidate_id, expected_status,
+        ),
+    )
+    conn.commit()
+    if cursor.rowcount != 1:
+        return None
+    return get_promotion_candidate(conn, candidate_id)
 
 
 # ---------------------------------------------------------------------------
